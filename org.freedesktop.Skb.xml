@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<node name="/" xmlns:doc="http://www.freedesktop.org/dbus/1.0/doc.dtd">
+  <interface name="org.freedesktop.skb">
+    <method name="AddFact">
+      <arg name="fact" type="s" direction="in"  />
+      <arg name="reply" type="s" direction="out"  />
+    </method>
+    <method name="Query">
+      <arg name="query" type="s" direction="in"  />
+      <arg name="reply" type="s" direction="out"  />
+    </method>
+    <property name="Activated" type="b" access="read" />
+  </interface>
+</node>
