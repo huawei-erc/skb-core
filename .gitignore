@@ -1,0 +1,13 @@
+CMakeCache.txt
+CMakeFiles/
+Makefile
+Skb.c
+Skb.h
+skb
+SkbConfig.h
+cmake_install.cmake
+doc/Makefile
+doc/cmake_install.cmake
+icparc_solver/Makefile
+icparc_solver/cmake_install.cmake
+icparc_solver/libicparc_solver.a
