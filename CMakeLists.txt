@@ -84,7 +84,7 @@ include_directories ("${PROJECT_BINARY_DIR}")
 
 # add the executable
 add_executable (skb skb_service.c skb_functions.c skb_gdbus.c ${SKB_GENERATED_SOURCES})
-target_link_libraries (skb  ${EXTRA_LIBS} icparc_solver)
+target_link_libraries (skb  ${EXTRA_LIBS} ${CMAKE_EXE_LINKER_FLAGS} icparc_solver)
 
 
 # add the install targets
