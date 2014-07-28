@@ -1,0 +1,255 @@
+/**
+ * \file
+ * \brief SKB library functions
+ */
+
+/*
+ * Copyright (c) 2007, 2008, 2009, 2010, ETH Zurich.
+ * All rights reserved.
+ *
+ * This file is distributed under the terms in the attached LICENSE file.
+ * If you do not find this file, copies can be found by writing to:
+ * ETH Zurich D-INFK, Haldeneggsteig 4, CH-8092 Zurich. Attn: Systems Group.
+ */
+
+#include <stdio.h>
+#include <string.h>
+//#include <barrelfish/barrelfish.h>
+#include <skb.h>
+#include <eclipse.h>
+#include "skb_debug.h"
+
+//#define BUFFER_SIZE 16384
+#define OUTPUT_SIZE 16384
+
+/* XXX: The following static chars make the skb connection not thread
+   safe and we probably don't want to put them in the per dispatcher
+   corestate as they are so big. */
+//static char buffer[BUFFER_SIZE];
+static char output[OUTPUT_SIZE];
+static char error_output[OUTPUT_SIZE];
+static int error_code;
+
+int skb_read_error_code(void)
+{
+    return error_code;
+}
+
+char *skb_get_output(void)
+{
+    /*XXX This is bad. */
+    return (output);
+}
+
+char *skb_get_error_output(void)
+{
+    return (error_output);
+}
+
+errval_t skb_execute_query_ll(char *query, struct skb_query_state * st)
+{
+	int res;
+
+	static struct skb_query_state sst;
+	char str[256];
+	char *s;
+
+	if (st == NULL)
+		st = &sst;	//XXX. 
+
+	ec_ref Start = ec_ref_create_newvar();
+
+	st->exec_res = PFLUSHIO;
+	st->output_length = 0;
+	st->error_output_length = 0;
+
+	/* Processing */
+	ec_post_string(query);
+
+	while (st->exec_res == PFLUSHIO) {
+		st->exec_res = ec_resume1(Start);
+
+		res = 0;
+		do {
+			res =
+			    ec_queue_read(1,
+					  st->output_buffer + st->output_length,
+					  BUFFER_SIZE - res);
+			st->output_length += res;
+		}
+		while ((res != 0) && (st->output_length < BUFFER_SIZE));
+		st->output_buffer[st->output_length] = 0;
+
+		res = 0;
+		do {
+			res =
+			    ec_queue_read(2,
+					  st->error_buffer +
+					  st->error_output_length,
+					  BUFFER_SIZE - res);
+			st->error_output_length += res;
+		}
+		while ((res != 0) && (st->error_output_length < BUFFER_SIZE));
+
+		st->error_buffer[st->error_output_length] = 0;
+	}
+
+	if (st->exec_res == PSUCCEED) {
+		ec_cut_to_chp(Start);
+		ec_resume();
+	}
+
+	SKB_DEBUG("skb output was: %s\n", st->output_buffer);
+	SKB_DEBUG("skb error  was: %s\n", st->error_buffer);
+	SKB_DEBUG("skb exec res: %d\n", st->exec_res);
+
+	ec_ref_destroy(Start);
+
+	return st->exec_res;
+}
+
+
+errval_t skb_execute(char *goal)
+{
+//we don't care about possible output or error buffers content here. The result (yes/no/error)
+//carried over the return code.
+     return skb_execute_query_ll(goal, NULL);
+}
+
+
+int skb_execute_query(char *fmt, ...)
+{
+    static char buffer[BUFFER_SIZE];
+
+    va_list va_l;
+    va_start(va_l, fmt);
+    vsnprintf(buffer, BUFFER_SIZE, fmt, va_l);
+    va_end(va_l);
+    buffer[BUFFER_SIZE - 1] = 0;
+
+    char *dot = strrchr(buffer, '.');
+    if (dot != 0) {
+        *dot = 0;
+    }
+
+    // We only collect return code from skb_execute() 
+
+    return skb_execute(buffer);
+}
+
+static inline int count_expected_conversions(char *s, int len)
+{
+    int expected_conversions = 0;
+    //count the number of single occurences of '%' to calculate the expected
+    //number of conversions made by sscanf
+    for (int i = 0; i < len; i++) {
+        if ((s[i] == '%') && 
+            (((i + 1 < len) && (s[i + 1] != '%')) ||
+            (i + 1 >= len))) {
+            expected_conversions++;
+        }
+    }
+    return (expected_conversions);
+}
+
+errval_t skb_read_output_at(char *out, char *fmt, ...)
+{
+    errval_t r;
+    va_list va_l;
+    va_start(va_l, fmt);
+    r = skb_vread_output_at(out, fmt, va_l);
+    va_end(va_l);
+    return(r);
+}
+
+errval_t skb_vread_output_at(char *out, char *fmt, va_list va_l)
+{
+
+    int expected_conversions = 0;
+    int nr_conversions;
+    int fmtlen = strlen(fmt);
+    expected_conversions = count_expected_conversions(fmt, fmtlen);
+
+    nr_conversions = vsscanf(out, fmt, va_l);
+    if (nr_conversions != expected_conversions) {
+        SKB_DEBUG("skb_vread_output_at(): Could not convert the SKB's result\n");
+        SKB_DEBUG("SKB returned: %s\nSKB error: %s\n", skb_get_output(),
+                skb_get_error_output());
+        return -1;
+    }
+    return 0;
+}
+
+
+errval_t skb_read_output(char *fmt, ...)
+{
+    errval_t r;
+    va_list va_l;
+    va_start(va_l, fmt);
+    r = skb_vread_output_at(skb_get_output(), fmt, va_l);
+    va_end(va_l);
+    return r;
+}
+
+
+void skb_read_list_init_offset(struct list_parser_status *status, char *s,
+                               int offset)
+{
+    status->s = s + offset;
+    status->conv_ptr = s;
+    status->len = strlen(s);
+    status->element_name[0] = 0;
+    status->expected_conversions = -1;
+}
+
+void skb_read_list_init(struct list_parser_status *status)
+{
+    skb_read_list_init_offset(status, skb_get_output(), 0);
+}
+
+bool skb_read_list(struct list_parser_status *status, char *fmt, ...)
+{
+    va_list va_l;
+    va_start(va_l, fmt);
+
+    int nr_conversions;
+    int lpar = 0;
+    int fmtlen = strlen(fmt);
+    if (status->element_name[0] == 0) {
+        for (lpar = 0; lpar < fmtlen; lpar++) {
+            if (fmt[lpar] == '(') {
+                break;
+            }
+        }
+        strncpy(status->element_name, fmt,
+                (lpar < ELEMENT_NAME_BUF_SIZE) ? lpar : ELEMENT_NAME_BUF_SIZE);
+        status->element_name[
+                (lpar < ELEMENT_NAME_BUF_SIZE) ? lpar : ELEMENT_NAME_BUF_SIZE
+                            ] = 0;
+        status->element_len = lpar;
+    }
+    if (status->expected_conversions == -1) {
+        status->expected_conversions =
+            count_expected_conversions(fmt, fmtlen);
+    }
+
+
+    //iterate over all buselements
+    while (status->conv_ptr < status->s + status->len) {
+        // search the beginning of the next buselement
+        while ((status->conv_ptr < status->s + status->len) &&
+               (strncmp(status->conv_ptr, status->element_name,
+                        status->element_len)) != 0) {
+                    status->conv_ptr++;
+        }
+        //convert the string to single elements and numbers
+        nr_conversions = vsscanf(status->conv_ptr, fmt, va_l);
+        va_end(va_l);
+        status->conv_ptr++;
+        if (nr_conversions != status->expected_conversions) {
+            return false;
+        }
+        return true;
+    }
+    return false;
+}

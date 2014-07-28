@@ -1,0 +1,6 @@
+SET(LATEX_OUTPUT_PATH "output")
+INCLUDE(UseLATEX.cmake)
+
+ADD_LATEX_DOCUMENT(skb.tex 
+		IMAGE_DIRS Pictures 
+		NO_DEFAULT)
